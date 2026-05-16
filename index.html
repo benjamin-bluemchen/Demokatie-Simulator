@@ -673,16 +673,13 @@ function buildEndScreen(survived){
 // ══════════════════════════════════════════════════════
 // LEADERBOARD — FIREBASE SDK (CORS-sicher)
 // ══════════════════════════════════════════════════════
-
 // Firebase-Konfiguration
 const FB_CONFIG = {
-  databaseURL: 'https://demokratie-spiel-default-rtdb.europe-west1.firebasedatabase.app/' 
-  
+  databaseURL: 'https://demokratie-spiel-default-rtdb.europe-west1.firebasedatabase.app/'
 };
 
 // Firebase SDK initialisieren (compat mode, einmalig)
 let _fbApp = null, _fbDb = null;
-
 function getFirebase() {
   if (_fbDb) return _fbDb;
   if (!_fbApp) _fbApp = firebase.initializeApp(FB_CONFIG);
@@ -692,89 +689,61 @@ function getFirebase() {
 
 async function saveToLeaderboard(survived) {
   try {
-    const db = getFirebase();
-    const ref = db.ref('rangliste');
-    
+    const db    = getFirebase();
+    const ref   = db.ref('rangliste');
     const entry = {
-      name: playerName || "Unbekannter Präsident",
-      country: countryName || "Unbekanntes Land",
-      score: typeof lastScore === 'number' ? lastScore : 0,
-      phase: G.phase || 1,
-      survived: survived || false,
-      months: G.totalTurn || 0, // Wir nennen es einheitlich "months"
-      date: new Date().toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'})
+      name:     playerName,
+      country:  countryName,
+      score:    lastScore,
+      phase:    G.phase,
+      survived: survived,
+      months:   G.totalTurn,
+      date:     new Date().toLocaleDateString('de-AT', {day:'2-digit', month:'2-digit', year:'numeric'})
     };
-
-    // Speichern in Firebase
-    await ref.push(entry);
-    console.log("Erfolgreich in Firebase gespeichert!");
+    await ref.push(entry);   // push() = Auto-Key, kein Überschreiben
   } catch(e) {
     console.warn('Rangliste konnte nicht gespeichert werden:', e);
   }
 }
 
 async function showLeaderboard(highlightScore) {
-  document.getElementById('setup-screen').style.display = 'none';
-  document.getElementById('main-game').style.display = 'none';
+  document.getElementById('setup-screen').style.display       = 'none';
+  document.getElementById('main-game').style.display          = 'none';
   document.getElementById('leaderboard-screen').style.display = 'block';
-  document.getElementById('lb-content').innerHTML = '<div class="lb-loading">Rangliste wird geladen ...</div>';
+  document.getElementById('lb-content').innerHTML = '<div class="lb-loading">Rangliste wird geladen …</div>';
 
   try {
-    const db = getFirebase();
-    const ref = db.ref('rangliste');
-    
-    // Daten einmalig abrufen
-    const snapshot = await ref.once('value');
-    const data = snapshot.val();
+    const db      = getFirebase();
+    const snap    = await db.ref('rangliste').orderByChild('score').limitToLast(50).once('value');
+    const raw     = snap.val();
 
-    if(!data) {
-      document.getElementById('lb-content').innerHTML = '<div class="lb-empty">Noch keine Einträge vorhanden. Sei der Erste!</div>';
+    if (!raw) {
+      document.getElementById('lb-content').innerHTML =
+        '<div class="lb-empty">Noch keine Einträge. Spielen Sie das erste Spiel und hinterlassen Sie Ihr Vermächtnis.</div>';
       return;
     }
 
-    // Firebase-Objekt in ein Array umwandeln
-    let list = [];
-    Object.keys(data).forEach(key => {
-      list.push(data[key]);
-    });
+    // Objekt → Array, absteigend nach Score
+    const entries = Object.values(raw).sort((a, b) => (b.score || 0) - (a.score || 0));
 
-    // Sortieren: Höchste Punktzahl zuerst
-    list.sort((a, b) => (b.score || 0) - (a.score || 0));
+    // Eigenen neuen Eintrag hervorheben
+    const myIdx = highlightScore !== null
+      ? entries.findIndex(e => e.name === playerName && e.score === highlightScore)
+      : -1;
 
     let html = `<table class="lb-table">
-                  <thead>
-                    <tr>
-                      <th>Platz</th>
-                      <th>Präsident & Monate</th>
-                      <th>Land</th>
-                      <th>Punkte</th>
-                      <th>Status</th>
-                      <th>Datum</th>
-                    </tr>
-                  </thead>
-                  <tbody>`;
+      <thead><tr>
+        <th>#</th><th>Präsident</th><th>Land</th><th>Punkte</th><th>Phase</th><th>Datum</th>
+      </tr></thead><tbody>`;
 
-    // Index des aktuellen Spielers finden, um ihn hervorzuheben
-    let myIdx = list.findIndex(e => e.score === highlightScore && e.name === playerName && e.country === countryName);
-
-    list.forEach((e, i) => {
-      const rank = i + 1;
-      let rankCls = '';
-      if(rank === 1) rankCls = 'gold';
-      else if(rank === 2) rankCls = 'silver';
-      else if(rank === 3) rankCls = 'bronze';
-
-      let scoreCls = 'ok';
-      if((e.score || 0) >= 70) scoreCls = 'good';
-      else if((e.score || 0) < 45) scoreCls = 'bad';
-
-      const isMe = (i === myIdx);
-      const newBadge = isMe ? '<span class="new-entry-badge">NEU</span>' : '';
-      
-      // Fehlerfreie Labels generieren
+    entries.forEach((e, i) => {
+      const rank       = i + 1;
+      const rankCls    = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+      const scoreCls   = e.score >= 70 ? 'good' : e.score >= 45 ? 'ok' : 'bad';
+      const isMe       = i === myIdx;
+      const newBadge   = isMe ? '<span class="new-entry-badge">NEU</span>' : '';
       const phaseLabel = e.survived ? 'Alle 3 Phasen' : 'Phase ' + (e.phase || '?') + ' von 3';
-      const mLabel = (e.months || 0) + ' Monate';
-
+      const mLabel     = (e.months || e.years || '?') + ' Monate';
       html += `<tr class="${isMe ? 'my-row' : ''} ${rank === 1 ? 'top1' : ''}">
         <td><span class="lb-rank ${rankCls}">${rank}</span></td>
         <td>
@@ -782,7 +751,7 @@ async function showLeaderboard(highlightScore) {
           <div class="lb-country">${mLabel} regiert</div>
         </td>
         <td>${escHtml(e.country)}</td>
-        <td><span class="lb-score ${scoreCls}">${e.score || 0}</span></td>
+        <td><span class="lb-score ${scoreCls}">${e.score}</span></td>
         <td><span class="lb-phase">${phaseLabel}</span></td>
         <td><span class="lb-date">${e.date || '—'}</span></td>
       </tr>`;
@@ -792,9 +761,24 @@ async function showLeaderboard(highlightScore) {
     document.getElementById('lb-content').innerHTML = html;
 
   } catch(err) {
-    document.getElementById('lb-content').innerHTML = '<div class="lb-empty">Rangliste konnte nicht geladen werden. Bitte versuchen Sie es erneut.</div>';
+    document.getElementById('lb-content').innerHTML =
+      '<div class="lb-empty">Rangliste konnte nicht geladen werden. Bitte versuchen Sie es erneut.</div>';
     console.warn('Firebase Fehler:', err);
   }
+}
+
+function hideLeaderboard(){
+  document.getElementById('leaderboard-screen').style.display = 'none';
+  if(G.gameOver){
+    document.getElementById('main-game').style.display = 'block';
+    document.getElementById('gameover').style.display = 'block';
+  } else {
+    document.getElementById('setup-screen').style.display = 'block';
+  }
+}
+
+function escHtml(s){
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ══════════════════════════════════════════════════════
